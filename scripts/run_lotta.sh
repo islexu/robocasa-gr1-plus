@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+set -euo pipefail
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+if [[ -f "$repo_root/scripts/paths.local.sh" ]]; then source "$repo_root/scripts/paths.local.sh"; fi
+stage="${1:-pilot}"
+case "$stage" in plan|doctor|validate|collect|pilot|development|confirmation) ;; *)
+  printf '%s\n' 'Usage: bash scripts/run_lotta.sh [plan|doctor|validate|collect|pilot|development|confirmation]' >&2; exit 2;;
+esac
+export GR1_PLUS_OUTPUT="${GR1_PLUS_OUTPUT:-$repo_root/runs/pilot-v1}"
+export GR1_PLUS_SELECTION="$GR1_PLUS_OUTPUT/calibration/selected.json"
+export MUJOCO_GL="${MUJOCO_GL:-egl}"
+export PYOPENGL_PLATFORM="${PYOPENGL_PLATFORM:-egl}"
+config="${GR1_PLUS_CONFIG:-$repo_root/configs/lotta_gr1_plus.yaml}"
+if [[ "$stage" == plan || "$stage" == pilot || "$stage" == collect ]]; then
+  gr1-plus plan --output "$GR1_PLUS_OUTPUT/plan" --variants "${GR1_PLUS_VARIANTS:-1}" \
+    --severities "${GR1_PLUS_SEVERITIES:-1}" --trials "${GR1_PLUS_TRIALS:-1}"
+  if [[ "$stage" == plan ]]; then exit 0; fi
+fi
+: "${GR1_PLUS_UPSTREAM:?Set GR1_PLUS_UPSTREAM}"
+gr1-plus doctor --root "$GR1_PLUS_UPSTREAM"
+if [[ "$stage" == validate ]]; then
+  for split in calibration development confirmation; do
+    gr1-plus validate --root "$GR1_PLUS_UPSTREAM" --manifest "$GR1_PLUS_OUTPUT/plan/$split.jsonl" \
+      --output "$GR1_PLUS_OUTPUT/validation/$split"
+  done
+  exit 0
+fi
+: "${GR1_PLUS_DEVICES:?Explicitly select GPUs that are free from existing LIBERO jobs}"
+IFS=',' read -ra devices <<< "$GR1_PLUS_DEVICES"
+export MUJOCO_EGL_DEVICE_ID="${devices[0]}"
+# Do not silently contend with existing training/evaluation processes.
+python - "$GR1_PLUS_DEVICES" <<'PY'
+import os, subprocess, sys
+devices=sys.argv[1].split(',')
+if any(not x.isdigit() for x in devices) or len(devices)!=len(set(devices)):
+    raise SystemExit('GR1_PLUS_DEVICES must be distinct numeric physical GPU IDs')
+for device in devices:
+    result=subprocess.run(['nvidia-smi','-i',device,'--query-compute-apps=pid','--format=csv,noheader,nounits'],
+                          check=True,text=True,capture_output=True)
+    if result.stdout.strip() and os.getenv('GR1_PLUS_ALLOW_BUSY')!='1':
+        raise SystemExit(f'GPU {device} already has compute processes; choose free GPUs or set GR1_PLUS_ALLOW_BUSY=1')
+PY
+gr1-plus doctor --root "$GR1_PLUS_UPSTREAM" --require-model
+CUDA_VISIBLE_DEVICES="${devices[0]}" LOTTA_DEVICE=cuda:0 lotta doctor --config "$config" --load-model
+if [[ "$stage" == doctor ]]; then exit 0; fi
+if [[ "$stage" == collect || "$stage" == pilot ]]; then
+  gr1-plus validate --root "$GR1_PLUS_UPSTREAM" --manifest "$GR1_PLUS_OUTPUT/plan/calibration.jsonl" \
+    --output "$GR1_PLUS_OUTPUT/validation/calibration"
+  lotta launch --config "$config" --manifest "$GR1_PLUS_OUTPUT/plan/calibration.jsonl" \
+    --stage collect --devices "$GR1_PLUS_DEVICES" --output "$GR1_PLUS_OUTPUT/calibration/collection" --resume
+  if [[ "$stage" == collect ]]; then exit 0; fi
+  trajectory="$(python - "$GR1_PLUS_OUTPUT/calibration/collection" <<'PY'
+from pathlib import Path
+import sys
+paths=sorted(Path(sys.argv[1]).glob('rank-*/trajectories/*.npz'))
+if not paths: raise SystemExit('No calibration trajectories collected')
+print(paths[0])
+PY
+)"
+  CUDA_VISIBLE_DEVICES="${devices[0]}" LOTTA_DEVICE=cuda:0 lotta smoke --config "$config" \
+    --trajectory "$trajectory" --output "$GR1_PLUS_OUTPUT/calibration/smoke.json"
+  python "$repo_root/scripts/patch_devices.py" --config "$config" \
+    --pairs "$GR1_PLUS_OUTPUT/calibration/collection" --output "$GR1_PLUS_OUTPUT/calibration/scores" \
+    --devices "$GR1_PLUS_DEVICES"
+  lotta select --scores "$GR1_PLUS_OUTPUT/calibration/scores" --output "$GR1_PLUS_SELECTION"
+  split=development
+elif [[ "$stage" == development || "$stage" == confirmation ]]; then
+  split="$stage"
+else
+  exit 2
+fi
+gr1-plus validate --root "$GR1_PLUS_UPSTREAM" --manifest "$GR1_PLUS_OUTPUT/plan/$split.jsonl" \
+  --output "$GR1_PLUS_OUTPUT/validation/$split"
+lotta launch --config "$config" --manifest "$GR1_PLUS_OUTPUT/plan/$split.jsonl" \
+  --devices "$GR1_PLUS_DEVICES" --output "$GR1_PLUS_OUTPUT/$split/evaluation" --resume
+lotta summarize --output "$GR1_PLUS_OUTPUT/$split/evaluation"

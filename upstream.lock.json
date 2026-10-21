@@ -1,0 +1,22 @@
+{
+  "robocasa": {
+    "repository": "https://github.com/robocasa/robocasa-gr1-tabletop-tasks",
+    "commit": "4840e671596f93ca03651524b9f72ffb1aadfeff"
+  },
+  "robosuite": {
+    "repository": "https://github.com/ARISE-Initiative/robosuite",
+    "tag": "v1.5.1",
+    "commit": "51cc01785bab80ffeed20da15e67d7dd4140e76a"
+  },
+  "mujoco": "3.2.6",
+  "gymnasium": "0.29.1",
+  "numpy": "1.26.4",
+  "dit4dit": {
+    "repository": "https://github.com/Mondo-Robotics/DiT4DiT",
+    "commit": "66a6f3a12e2c8740157c1e478795952c040d31dd",
+    "checkpoint_repository": "mondo-robotics/dit4dit-model",
+    "checkpoint_subdirectory": "dit4dit_robocasa_gr1",
+    "checkpoint_sha256": null,
+    "note": "No weights bundled. LoTTA records the actual local checkpoint hash when loading."
+  }
+}
