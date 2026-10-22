@@ -63,7 +63,7 @@ Keep the existing LIBERO environment and jobs in place.
 ```bash
 conda create -n lotta-gr1-v2 python=3.10 -y
 conda activate lotta-gr1-v2
-git clone --branch refine/libero-plus-v2 https://github.com/islexu/robocasa-gr1-plus.git robocasa-gr1-plus-v2
+git clone --branch refine/robocasa-gr1-v2 https://github.com/islexu/robocasa-gr1-plus.git robocasa-gr1-plus-v2
 cd robocasa-gr1-plus-v2
 bash scripts/install_sim.sh
 python external/robocasa-gr1-tabletop-tasks/robocasa/scripts/download_tabletop_assets.py -y

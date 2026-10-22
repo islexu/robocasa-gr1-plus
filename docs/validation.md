@@ -1,4 +1,4 @@
-# Validation status (2026-10-22, refine/libero-plus-v2)
+# Validation status (2026-10-22, refine/robocasa-gr1-v2)
 
 v0.2 implements 20 named subtypes, five numeric strength presets (categorical language
 and shadows use one), actual bitmap texture materials, five image degradations, all-14-arm-joint
