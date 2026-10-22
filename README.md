@@ -1,165 +1,184 @@
-# RoboCasa-GR1-Plus
+# RoboCasa-GR1-Plus v0.3
 
-Robustness shifts for the **24 official RoboCasa GR1 tabletop tasks**, with the same
-**calibration → activation patching → layer selection → online adaptation → reporting**
-pipeline used by [LoTTA](https://github.com/islexu/LoTTA) on LIBERO-Plus.
+A controlled robustness extension for the **24 original RoboCasa-GR1 tabletop tasks**,
+usable with **original DiT4DiT** and **LoTTA**. Robot, task predicates, native ego-image
+crop, language prefix and 29 continuous absolute joint actions remain GR1-specific.
 
-This branch defaults to the **v0.2 protocol: seven dimensions and 20 explicit subtypes**.
-This is an independent
-extension of [RoboCasa GR1](https://github.com/robocasa/robocasa-gr1-tabletop-tasks),
-inspired by [LIBERO-Plus](https://github.com/sylvestf/LIBERO-plus).
-**The real GR1 task suite, trained checkpoint and H200 policy rollouts have not been run
-in the authoring session. Tests of a small MuJoCo renderer fixture are not GR1 benchmark results.**
+This branch adds a pinned CC0 photo-texture pack, disjoint task/asset splits, fixed
+compositions, complete preflight gating, an identified DiT4DiT websocket service/client,
+and matched-episode reporting. See [design and research references](docs/robust-v3.md)
+and [validation status](docs/validation.md). Official GR1 assets and trained checkpoint/H200
+rollouts have not been executed in the authoring session; the tests use small MuJoCo
+fixtures and the real upstream socket transport with a synthetic policy.
 
-## Protocol v0.2
+## Evaluation matrix
 
-| Dimension | Subtypes | Five GR1 strength presets, S1 → S5 |
-| --- | --- | --- |
-| Camera | Distance, orbit, orientation | Distance ×1.05/1.10/1.20/1.35/1.50; orbit parameter norm 5/10/15/25/35°; orientation 2/4/6/8/10° |
-| Background | Scene texture, tabletop texture | Authored bitmap patterns, contrast .2/.4/.6/.8/1.0 |
-| Light | Diffuse RGB, direction, specular, shadows | Separate renderer controls; shadows are categorical |
-| Noise | Motion blur, Gaussian blur, zoom blur, fog, glass blur | Five explicit parameter recipes per subtype |
-| Language | Action paraphrase, irrelevant context, commonsense descriptors | Categorical authored transformations; keep entity nouns and action order |
-| Robot initial state | Joint vector over both seven-joint arms | Total 14-joint L2 radius .05/.10/.15/.20/.25 rad |
-| Object layout | Target-only pose, physical clutter | Target XY 1/2/3/4/5 cm and yaw 3/6/10/15/20°; clutter count 1/1/2/3/4 |
+| Profile | Single-shift subtypes | Fixed compositions | Cases per task/trial including clean |
+| --- | ---: | ---: | ---: |
+| `core` (default) | 16: camera, background, light, noise, controlled language | 4 | 21 |
+| `full` | 20: core plus commonsense language, 14-joint initialization, target pose, household clutter | 4 | 25 |
 
-See [the exact parameter table and design differences](docs/protocol-v2.md).
-Run `gr1-plus catalogue` to print all machine-readable recipes. These are **strength presets,
-not empirically calibrated difficulty levels**. Bitmap patterns are generated locally;
-clutter uses collidable primitives. Neither reproduces LIBERO-Plus's external asset diversity.
-Target pose shifts must retain positive source-receptacle/support predicates. Robot/layout
-poses are checked for joint limits, new deep penetration, finite state and initial non-success.
-Invalid cases roll back and are reported separately; reachability remains unverified.
+Core excludes physical initial-state interventions so the first evaluation focuses on
+observation robustness with the original mechanics. Full is a separate stress profile,
+requiring mechanics and semantic inspection. `--no-compositions` keeps only single shifts.
+Five **strength presets** are supported; they are not calibrated difficulty levels.
 
-Pure visual calibration uses nominal and shifted observations from **one simulation state**.
-No clean policy rollout, expert action, reward, or future frame is used by online adaptation.
-Paired observations are unavailable in development/confirmation episodes.
+The four compositions are camera orbit + tabletop texture; scene texture + diffuse light;
+camera orientation + Gaussian blur; tabletop texture + fog. Each reuses exactly the same
+component parameters as its matching single-shift case. Report their rates separately.
 
-The default pilot splits base tasks by seed 42 into **6 calibration / 6 development /
-12 confirmation** tasks. Different splits share no base task. Each development and
-confirmation task includes clean plus **every subtype**, one realization and one trial:
+All original v0.2 numeric recipes remain documented in [protocol-v2.md](docs/protocol-v2.md).
+The CLI defaults to v0.3; `--protocol v1` and `--protocol v2` retain legacy recipes.
+Use a separate clone/environment/output from any active evaluation.
 
-| Split | Environment episodes | Policy rollouts |
-| --- | --- | --- |
-| Calibration | 48 (3 camera + 5 noise per task) | 48 Frozen |
-| Development | 126 | 378: Frozen / Random-LoRA / LoTTA |
-| Confirmation | 252 | 756: Frozen / Random-LoRA / LoTTA |
-
-These are pilot counts, not full-benchmark confidence estimates. Default strength is S1.
-For a larger fixed plan use `GR1_PLUS_SEVERITIES=1,3,5 GR1_PLUS_TRIALS=10` and a new output
-directory. `--variants` requests additional realizations where meaningful; fixed recipes
-are emitted once per strength and authored language templates are capped at three.
-Never tune on confirmation tasks.
-
-The v0.1 recipes remain accessible with `gr1-plus plan --protocol v1`. Keep any running
-v0.1 evaluation on its original checkout and output directory: **clone this branch separately**
-and generate a fresh v0.2 plan. Source fingerprints intentionally reject a stale manifest.
-
-## Installation
-
-Use a **separate conda environment** because LIBERO and GR1 have different simulator dependencies.
-Keep the existing LIBERO environment and jobs in place.
+## Install in a working GR1 environment
 
 ```bash
-conda create -n lotta-gr1-v2 python=3.10 -y
-conda activate lotta-gr1-v2
-git clone --branch refine/robocasa-gr1-v2 https://github.com/islexu/robocasa-gr1-plus.git robocasa-gr1-plus-v2
-cd robocasa-gr1-plus-v2
-bash scripts/install_sim.sh
-python external/robocasa-gr1-tabletop-tasks/robocasa/scripts/download_tabletop_assets.py -y
+git clone --branch refine/robocasa-gr1-v3 https://github.com/islexu/robocasa-gr1-plus.git robocasa-gr1-plus-v3
+cd robocasa-gr1-plus-v3
+python -m pip install -e '.[sim,client]'
+export GR1_PLUS_UPSTREAM=/home/jovyan/robocasa-gr1-tabletop-tasks
+export GR1_PLUS_CHECKPOINT=/home/jovyan/checkpoints/dit4dit-model/dit4dit_robocasa_gr1/checkpoints/YOUR_CHECKPOINT.pt
+export LOTTA_UPSTREAM_ROOT=/home/jovyan/LoTTA/third_party/DiT4DiT
+export GR1_PLUS_ASSET_CACHE=/home/jovyan/.cache/robocasa-gr1-plus/assets-v1
+gr1-plus assets fetch
+gr1-plus assets verify
 ```
 
-Install the LoTTA branch containing the GR1 interface into this environment (an existing
-LoTTA checkout can supply its source without changing the environment of an active process):
+For a fresh simulator environment, use Python 3.10/3.11, run `bash scripts/install_sim.sh`,
+then download the official assets with
+`python external/robocasa-gr1-tabletop-tasks/robocasa/scripts/download_tabletop_assets.py -y`.
+The pinned GR1 simulator is `4840e671596f93ca03651524b9f72ffb1aadfeff`; keep its original
+assets. Do not substitute RoboCasa365 or RoboTwin's simulator/embodiment.
+
+Use the RoboCasa-GR1 DiT4DiT checkpoint with its `config.yaml` and
+`dataset_statistics.json`, not LIBERO weights. Set the config's Cosmos base path to your
+local Cosmos-Predict2.5-2B directory, as required by the original DiT4DiT loader.
+The independent client needs only the simulator/client extras; the GPU server needs the
+already-working DiT4DiT model environment. The [official DiT4DiT setup](https://github.com/Mondo-Robotics/DiT4DiT)
+contains those model dependencies.
+
+## Assets and reproducibility
+
+The eight real 1K photo textures total **4,424,108 bytes**. Calibration uses wood/fabric;
+development uses brick/concrete; confirmation uses marble/ceramic/plaster/leather.
+Every file is pinned by SHA-256, byte count, source URL and CC0 license in
+[the asset lock](src/robocasa_gr1_plus/data/textures.lock.json). **Powered by Poly Haven.**
+See [asset licenses](ASSET_LICENSES.md).
+
+Fetch once, then evaluations read the cache without downloading assets. `assets verify`
+fails on missing/corrupt bytes; no procedural or network fallback silently replaces a photo.
+A cache may be prepared elsewhere and copied to the same configured cache root. Runtime
+materials are derived deterministically and their RGB hashes enter environment provenance.
+Household clutter uses six original collidable geometry models, not scanned object meshes.
+
+## Original DiT4DiT, without LoTTA
+
+Start with a one-trial mechanics/connection pilot in a new output directory:
 
 ```bash
-git clone --branch robocasa-gr1-plus https://github.com/islexu/LoTTA.git ../LoTTA-gr1
-cd ../LoTTA-gr1
-python -m pip install torch==2.7.1 torchvision==0.22.1 --index-url https://download.pytorch.org/whl/cu128
-python -m pip install -e '.[model,test]'
-cd ../robocasa-gr1-plus-v2
+export GR1_PLUS_OUTPUT=$PWD/runs/dit4dit-v3-pilot
+gr1-plus plan --mode checkpoint --profile core --trials 1 --output "$GR1_PLUS_OUTPUT/plan"
+MUJOCO_GL=egl PYOPENGL_PLATFORM=egl gr1-plus validate \
+  --root "$GR1_PLUS_UPSTREAM" --manifest "$GR1_PLUS_OUTPUT/plan/confirmation.jsonl" \
+  --output "$GR1_PLUS_OUTPUT/validation"
 ```
 
-The complete Isaac-GR00T training package and FlashAttention are not needed by this DiT4DiT
-evaluation path; the official GR1 simulator, its assets, and LoTTA's model dependencies are.
-
-## Checkpoint
-
-Use the **RoboCasa-GR1** checkpoint, its `config.yaml` and normalization statistics;
-the LIBERO checkpoint has the wrong action space.
+Inspect `validation.json` and saved images. Start the model server in its working model
+environment, explicitly selecting a free GPU:
 
 ```bash
-hf download mondo-robotics/dit4dit-model --include 'dit4dit_robocasa_gr1/*' \
-  --local-dir /home/jovyan/checkpoints/dit4dit-model
+CUDA_VISIBLE_DEVICES=2 gr1-plus serve-dit4dit \
+  --dit4dit-root "$LOTTA_UPSTREAM_ROOT" --checkpoint "$GR1_PLUS_CHECKPOINT" --port 6398
 ```
 
-Reuse your local Cosmos-Predict2.5-2B base. Set the exact `.pt` path in
-`scripts/paths.local.sh`; if normalization has multiple keys, explicitly set the GR1 key in
-`configs/lotta_gr1_plus.yaml`. The backend rejects statistics with other than 29 actions.
-Checkpoint/source hashes are stored with the result rather than copying weights into Git.
+Then evaluate from the simulator/client environment:
 
-## Run the same pipeline
+```bash
+MUJOCO_GL=egl PYOPENGL_PLATFORM=egl MUJOCO_EGL_DEVICE_ID=2 gr1-plus eval-dit4dit \
+  --dit4dit-root "$LOTTA_UPSTREAM_ROOT" --checkpoint "$GR1_PLUS_CHECKPOINT" --port 6398 \
+  --root "$GR1_PLUS_UPSTREAM" --manifest "$GR1_PLUS_OUTPUT/plan/confirmation.jsonl" \
+  --validation "$GR1_PLUS_OUTPUT/validation/validation.json" \
+  --output "$GR1_PLUS_OUTPUT/evaluation" --resume
+```
+
+The service identifies checkpoint/config/statistics hashes, enforces one client, and resets
+model caches and RNG per episode. It preserves model parameter dtypes by default, matching
+LoTTA's loading convention; `--bf16` is an explicit full-model cast recorded in metadata.
+Action sampling uses the checkpoint's action-model configuration. The pinned upstream ignores
+client DDIM kwargs, so this client does not advertise an ineffective sampling override.
+With multiple normalization keys, pass the same `--unnorm-key` to server and client.
+
+For the fixed checkpoint audit, use a **new** output and `--trials 50`: core has
+24 × 21 × 50 = **25,200 episodes** at S1. The full profile has 30,000. Run preflight on
+that exact manifest; a small pilot report cannot authorize the larger evaluation.
+
+## LoTTA pipeline and multi-GPU evaluation
+
+Install the GR1 interface from your LoTTA checkout; the tested integration is the
+[`robocasa-gr1-plus` branch](https://github.com/islexu/LoTTA/tree/robocasa-gr1-plus).
+The existing `environment.kind: robocasa_gr1` factory imports this package automatically.
+No LoTTA algorithm, intervention location or adapter site is changed in this benchmark repo.
 
 ```bash
 cp scripts/paths.example.sh scripts/paths.local.sh
-# Edit paths, the GR1 checkpoint and free GPU IDs.
+# Edit checkpoint/base/source paths, output and genuinely free physical GPU IDs.
 bash scripts/run_lotta.sh plan
-bash scripts/run_lotta.sh doctor
 bash scripts/run_lotta.sh pilot
-# After fixing all settings on development tasks:
+# After fixing all choices on development tasks:
 bash scripts/run_lotta.sh confirmation
 ```
 
-`pilot` validates calibration resets and image pairs, collects observed trajectories, tests
-one actual adapter update and exact reset, runs activation patching, selects a two-layer band,
-validates development resets, and evaluates all three methods. `confirmation` uses the fixed
-selection. `collect`, `validate`, and `development` can also be run separately.
+This retains collection → actual one-update smoke → activation patching → layer selection
+→ Frozen / Random-LoRA / LoTTA evaluation. Defaults: rank 4, width 2, one update, LR 1e-5,
+12 actions per inference, horizon 720 at the official 20 Hz. The process-per-GPU launcher
+is retained; no DDP or interruption of other jobs is introduced.
 
-For a **frozen checkpoint audit on all 24 tasks**, use a different output directory:
+V0.3 calibrates on **all four visual dimensions**, covering 14 subtypes on six base tasks.
+Calibration and evaluation trial budgets are separate:
 
 ```bash
-export GR1_PLUS_OUTPUT=/home/jovyan/robocasa-gr1-plus-v2/runs/checkpoint-v2
 export GR1_PLUS_TRIALS=50
-bash scripts/run_lotta.sh checkpoint
+export GR1_PLUS_CALIBRATION_TRIALS=2
+export GR1_PLUS_OUTPUT=$PWD/runs/lotta-v3-core-50
+bash scripts/run_lotta.sh pilot
 ```
 
-This uses `configs/gr1_checkpoint_v2.yaml`, supplies no calibration pairs/selection, and
-evaluates 24 × 21 × 50 = **25,200 episodes** at the default S1. It is separate from the
-task-disjoint LoTTA experiment. Set `GR1_PLUS_OUTPUT` back to the pilot directory to run LoTTA.
+At S1/one realization, this gives 168 calibration episodes, 6,300 development episodes and
+12,600 confirmation episodes per policy method. Confirmation shares neither base tasks nor
+texture IDs/families with calibration/development. Use `GR1_PLUS_PROFILE=full` for a separate
+physical stress plan. The selected band remains the result of LoTTA's existing aggregate
+patching rule; broader calibration does not prove a universally optimal band.
 
-The launcher starts one process per selected GPU, uses no DDP/NCCL, and resumes completed
-streams. GPU IDs are explicit. Busy GPUs fail the preflight check unless you deliberately set
-`GR1_PLUS_ALLOW_BUSY=1`; the launcher never terminates existing jobs. For concurrent LIBERO
-work, select genuinely free GPUs, or wait until a GPU becomes free before launching.
+## Validation and reporting
 
-Defaults: horizon 720 control steps at the simulator's 20 Hz, execute 12 predicted actions
-per inference, rank 4, alpha 4, learning rate 1e-5, one video-loss update, width 2, episodic
-reset. All three methods use the same task/initial-state/corruption seeds. The official GR1
-reset settles the scene internally; there is no LIBERO dummy-gripper settling sequence.
+`validate` checks every requested reset twice, hash-identical initial images/states, visible
+visual effects, finite hold states, passive task completion and free-object drift. Invalid
+poses are rolled back; invalid/error/pending cases are never converted to policy failures
+or silently dropped. Full-profile target-pose cases retain positive support/receptacle
+relations. These checks do not prove reachability or language equivalence.
 
-## Outputs and validation
-
-`plan/` fixes episode identities and task splits; existing files cannot be replaced by a
-different plan. `validation/` saves reset checks, pair proofs and images. `calibration/`
-contains trajectories, patch scores, `smoke.json` and `selected.json`. Development and
-confirmation store per-episode success, updates, timing, memory and the existing LoTTA reports.
-Runtime errors and `InvalidPerturbation` cases are separate from policy failures.
-`coverage.json` reports planned/completed/success/error/invalid/pending counts per method,
-dimension, subtype and strength. Rates use completed valid episodes; partial coverage
-remains explicit. Fixed-dimension macro rates accompany pooled rates because the dimensions
-contain different numbers of subtypes. A recovered retry is counted once.
+Both entry points require complete preflight coverage bound to the exact manifest, source
+and simulator/image-library versions. `verify-validation` can check the report explicitly.
+The direct runner resumes completed episodes and retains recovered error records.
 
 ```bash
-gr1-plus summarize --manifest runs/pilot-v2/plan/development.jsonl \
-  --results runs/pilot-v2/development/evaluation --output runs/pilot-v2/development/coverage.json
+gr1-plus summarize --manifest "$GR1_PLUS_OUTPUT/plan/confirmation.jsonl" \
+  --results "$GR1_PLUS_OUTPUT/confirmation/evaluation" --output "$GR1_PLUS_OUTPUT/confirmation/coverage.json"
 ```
+
+Reports separate clean, single-dimension and composition rates; subtype/strength/asset
+coverage; matched clean-to-shift drops; and paired task-cluster bootstrap gains versus Frozen.
+Mixed checkpoints, duplicate records, altered manifests or different initial states for the
+same episode are rejected. Pooled rates use completed valid cases and always show missing
+coverage. Compare complete matching episodes, not partial headline percentages.
 
 ```bash
-python -m pytest
-# Optional real MuJoCo renderer fixture checks:
-MUJOCO_GL=egl PYOPENGL_PLATFORM=egl python -m pytest tests/test_mujoco_pair.py
+python -m pip install -e '.[test,sim,client]'
+MUJOCO_GL=egl PYOPENGL_PLATFORM=egl \
+DIT4DIT_TEST_ROOT="$LOTTA_UPSTREAM_ROOT" python -m pytest
 ```
 
-See [docs/validation.md](docs/validation.md) for the measured authoring-session status and
-[upstream.lock.json](upstream.lock.json) for pinned versions. Simulator assets remain under
-their upstream licenses and are downloaded separately.
+The test suite downloads nothing implicitly. Prepare the asset pack first to execute all
+photo-texture fixtures; set `DIT4DIT_TEST_ROOT` to execute the actual upstream websocket test.
+GitHub CI prepares both explicitly. [Historical v0.2 README](docs/README-v2.md).

@@ -17,7 +17,7 @@ fi
 python -m pip install 'numpy==1.26.4' 'mujoco==3.2.6' 'gymnasium==0.29.1' \
   'opencv-python==4.11.0.86' \
   'robosuite @ git+https://github.com/ARISE-Initiative/robosuite.git@51cc01785bab80ffeed20da15e67d7dd4140e76a'
-python -m pip install -e "$upstream" -e "$repo_root[test,sim]"
+python -m pip install -e "$upstream" -e "$repo_root[test,sim,client]"
 printf '%s\n' "Simulation dependencies installed. Download official assets with:"
 printf 'python %q/robocasa/scripts/download_tabletop_assets.py -y\n' "$upstream"
 printf '%s\n' 'Install LoTTA model dependencies separately in this environment; see README.md.'

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "robocasa-gr1-plus"
-version = "0.2.0"
+version = "0.3.0"
 description = "Reproducible robustness shifts for the 24 RoboCasa GR1 tabletop tasks"
 requires-python = ">=3.10"
 dependencies = ["numpy>=1.24,<2", "Pillow>=10", "PyYAML>=6"]
@@ -12,12 +12,16 @@ dependencies = ["numpy>=1.24,<2", "Pillow>=10", "PyYAML>=6"]
 [project.optional-dependencies]
 sim = ["gymnasium==0.29.1", "mujoco==3.2.6", "opencv-python==4.11.0.86"]
 test = ["pytest>=8"]
+client = ["websockets==16.0", "msgpack==1.1.2", "typing-extensions>=4.8"]
 
 [project.scripts]
 gr1-plus = "robocasa_gr1_plus.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+robocasa_gr1_plus = ["data/*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -18,5 +18,13 @@
     "checkpoint_subdirectory": "dit4dit_robocasa_gr1",
     "checkpoint_sha256": null,
     "note": "No weights bundled. LoTTA records the actual local checkpoint hash when loading."
+  },
+  "robust_protocol": "robocasa-gr1-plus-v0.3",
+  "texture_pack": {
+    "id": "polyhaven-gr1-v1",
+    "lock": "src/robocasa_gr1_plus/data/textures.lock.json",
+    "license": "CC0-1.0",
+    "count": 8,
+    "bytes": 4424108
   }
 }

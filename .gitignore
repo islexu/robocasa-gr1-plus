@@ -5,6 +5,8 @@ __pycache__/
 .venv/
 runs/
 external/
+build/
+dist/
 scripts/paths.local.sh
 *.pt
 *.safetensors

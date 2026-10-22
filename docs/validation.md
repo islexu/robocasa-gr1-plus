@@ -1,4 +1,26 @@
-# Validation status (2026-10-22, refine/robocasa-gr1-v2)
+# Validation status (2026-10-22, refine/robocasa-gr1-v3)
+
+Measured locally: **145 tests passed** (95 benchmark + 50 existing LoTTA tests).
+The v0.3 checks include all eight checksum-verified CC0 photo textures rendered with
+MuJoCo 3.2.6/EGL, matched single/composed interventions, household clutter, native
+instance XML processors across hard resets, and the environment's CLI preflight gate.
+The actual pinned DiT4DiT websocket client/server transport was exercised with a
+synthetic policy: GR1 image/state preprocessing, continuous 29-dimensional actions,
+checkpoint identity rejection and per-episode RNG/cache resets are covered.
+Direct evaluation fixtures cover completed policy failures, inference errors, resume
+and error recovery. Reporting checks cover asset strata, matching reset proofs and
+paired task-level gains. The wheel includes the asset lock; photo bytes are fetched
+explicitly and remain outside the package.
+
+The fixtures are small authored MuJoCo scenes, **not official GR1 task assets**.
+No trained GR1 checkpoint inference, H200 rollout, full official-task reset coverage,
+cross-path GPU prediction parity, actual GR1 LoRA gradients or robustness success
+rate has been measured here. Complete preflight on the exact target manifest and
+inspect its images before evaluating. See [robust-v3.md](robust-v3.md) for the protocol,
+source references and remaining target-machine measurements. Existing v0.1/v0.2 jobs
+must retain their original checkout and output directory.
+
+## Historical v0.2 validation (2026-10-22)
 
 v0.2 implements 20 named subtypes, five numeric strength presets (categorical language
 and shadows use one), actual bitmap texture materials, five image degradations, all-14-arm-joint

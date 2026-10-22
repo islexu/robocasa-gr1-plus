@@ -1,0 +1,35 @@
+# GR1 Plus v0.3; manifest defines profile, assets and perturbations.
+backend: dit4dit
+device: cuda:0
+seed: 42
+num_threads: 4
+checkpoint: ${GR1_PLUS_CHECKPOINT}
+base_model: ${LOTTA_BASE_MODEL}
+upstream_root: ${LOTTA_UPSTREAM_ROOT}
+selection: null
+unnorm_key: null
+gradient_checkpointing: false
+methods: [frozen]
+execute_steps: 12
+environment:
+  kind: robocasa_gr1
+  expected_package_root: ${GR1_PLUS_UPSTREAM}
+  image_size: 224
+  max_steps: 720
+  settle_steps: 0
+adaptation:
+  rank: 4
+  alpha: 4
+  lr: 0.00001
+  steps: 1
+  width: 2
+  selection_seed: 42
+  reset: episodic
+  replay_size: 4
+  update_every: 1
+  max_grad_norm: 1
+  anchor: 0
+patching:
+  width: 2
+  alpha: 1
+collect_every: 24

@@ -2,6 +2,7 @@
 from collections import defaultdict
 import hashlib
 import json
+import numpy as np
 from pathlib import Path
 from .protocol import digest
 
@@ -23,6 +24,8 @@ def summarize(manifest, results, output, methods=None):
         raise ValueError("Checkpoint mode reports frozen only; use a task-disjoint LoTTA plan for adaptation")
     completed, errors = {}, {}
     fingerprints = set()
+    reset_proofs=defaultdict(set)
+    missing_reset_proofs=0
     for kind, target in (("episodes", completed), ("errors", errors)):
         for path in sorted(Path(results).rglob("*.json")):
             if path.parent.name != kind:
@@ -49,6 +52,14 @@ def summarize(manifest, results, output, methods=None):
                     raise ValueError("Results contain different model fingerprints; report each checkpoint separately")
             if kind == "episodes" and (record.get("status") != "completed" or type(record.get("success")) is not bool):
                 raise ValueError(f"Malformed completed result: {path}")
+            if kind=="episodes":
+                provenance=record.get("environment_provenance",{})
+                proof=(provenance.get("initial_state_sha256"),provenance.get("physical_model_sha256"))
+                if all(proof):
+                    reset_proofs[key[1]].add(proof)
+                    if len(reset_proofs[key[1]])>1:
+                        raise ValueError("Methods have different initial simulation states or physics for the same episode")
+                else: missing_reset_proofs+=1
             target[key] = record
     groups = defaultdict(list)
     totals = defaultdict(list)
@@ -79,10 +90,53 @@ def summarize(manifest, results, output, methods=None):
             if rate is not None:
                 rates.append(rate)
         overall[method]["dimension_macro_rate"] = sum(rates) / len(rates) if rates else None
+        singles=[counts([i for k,v in groups.items() if k[0]==method and k[1]==dim for i in v])["success_rate"]
+                 for dim in sorted({r["dimension"] for r in rows}-{"clean","composition"})]
+        singles=[r for r in singles if r is not None]
+        overall[method]["single_dimension_macro_rate"]=sum(singles)/len(singles) if singles else None
+        composed=[i for k,v in groups.items() if k[0]==method and k[1]=="composition" for i in v]
+        overall[method]["composition_rate"]=counts(composed)["success_rate"] if composed else None
+    asset_groups=defaultdict(list)
+    clean_pairs=[]
+    for method in methods:
+        clean={(r["base_task_id"],r["init_id"]):completed.get((method,r["episode_id"])) for r in rows if r["dimension"]=="clean"}
+        for row in rows:
+            key=(method,row["episode_id"]); record=completed.get(key); failure=errors.get(key)
+            for component in row["variant"].get("components",[row["variant"]]):
+                asset=component.get("parameters",{}).get("asset")
+                if asset:
+                    status="completed" if record else "invalid" if failure and failure.get("error_type")=="InvalidPerturbation" else "error" if failure else "pending"
+                    asset_groups[(method,asset["id"])].append({"status":status,"success":bool(record and record["success"])})
+        for dimension in sorted({r["dimension"] for r in rows}-{"clean"}):
+            shifted=[r for r in rows if r["dimension"]==dimension]
+            pairs=[(clean.get((r["base_task_id"],r["init_id"])),completed.get((method,r["episode_id"]))) for r in shifted]
+            observed=[(a,b) for a,b in pairs if a is not None and b is not None]
+            clean_pairs.append({"method":method,"dimension":dimension,"planned_pairs":len(pairs),"completed_pairs":len(observed),
+                                "complete_pairs":len(observed)==len(pairs),
+                                "clean_minus_shifted_rate":sum(int(a["success"])-int(b["success"]) for a,b in observed)/len(observed) if observed else None})
+    paired={}
+    for method in sorted(set(methods)-{"frozen"}):
+        if "frozen" not in methods or not overall[method]["complete_valid_coverage"] or not overall["frozen"]["complete_valid_coverage"]:
+            paired[method]={"status":"incomplete_coverage","paired_gain":None}; continue
+        if missing_reset_proofs:
+            paired[method]={"status":"missing_reset_proof","paired_gain":None};continue
+        clusters=defaultdict(list)
+        for row in rows:
+            eid=row["episode_id"]
+            clusters[row["base_task_id"]].append(int(completed[(method,eid)]["success"])-int(completed[("frozen",eid)]["success"]))
+        means=np.array([np.mean(v) for v in clusters.values()])
+        rng=np.random.default_rng(42)
+        bootstrap=means[rng.integers(0,len(means),(2000,len(means)))].mean(axis=1)
+        paired[method]={"status":"complete","paired_task_macro_gain":float(means.mean()),
+                        "task_cluster_bootstrap_95":np.quantile(bootstrap,[.025,.975]).tolist(),"task_clusters":len(means),
+                        "few_task_clusters":len(means)<10}
     report = {"protocol": rows[0]["protocol"], "plan_id": rows[0]["plan_id"],
               "manifest_sha256": hashlib.sha256(manifest.read_bytes()).hexdigest(),
               "methods": methods, "overall": overall, "by_subtype_severity": table,
               "model_fingerprints": sorted(fingerprints),
+              "missing_reset_proof_records":missing_reset_proofs,
+              "by_texture_asset":[{"method":k[0],"asset_id":k[1],**counts(v)} for k,v in sorted(asset_groups.items())],
+              "matched_clean_drop":clean_pairs,"paired_vs_frozen":paired,
               "recovered_error_records": len(set(completed) & set(errors)),
               "rate_denominator": "completed valid episodes only; errors, invalid cases and pending shown separately",
               "aggregation": "dimension_macro_rate gives equal weight to observed shifted dimensions; inspect coverage before comparison"}
