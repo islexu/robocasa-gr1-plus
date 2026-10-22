@@ -4,29 +4,32 @@ Robustness shifts for the **24 official RoboCasa GR1 tabletop tasks**, with the 
 **calibration → activation patching → layer selection → online adaptation → reporting**
 pipeline used by [LoTTA](https://github.com/islexu/LoTTA) on LIBERO-Plus.
 
-The benchmark implementation supports seven shift dimensions. This is an independent
+This branch defaults to the **v0.2 protocol: seven dimensions and 20 explicit subtypes**.
+This is an independent
 extension of [RoboCasa GR1](https://github.com/robocasa/robocasa-gr1-tabletop-tasks),
 inspired by [LIBERO-Plus](https://github.com/sylvestf/LIBERO-plus).
 **The real GR1 task suite, trained checkpoint and H200 policy rollouts have not been run
 in the authoring session. Tests of a small MuJoCo renderer fixture are not GR1 benchmark results.**
 
-## Protocol
+## Protocol v0.2
 
-| Dimension | Six variants | Severity |
+| Dimension | Subtypes | Five GR1 strength presets, S1 → S5 |
 | --- | --- | --- |
-| Camera | ±x / ±y / ±z in the ego camera's parent frame | 1.5 / 3 / 4.5 cm |
-| Background | Six material/color palettes on table, wall and floor geoms | Blend 0.35 / 0.65 / 1.0 |
-| Light | Warm / cool / green / magenta / dim / bright | Three intensity levels |
-| Noise | Gaussian / impulse / Gaussian blur / motion blur / JPEG / pixelation | Three strengths |
-| Language | Six instruction wrappers, retaining the original instruction and GR1 prefix | One categorical level |
-| Robot initial state | Left / right / both elbow offsets, positive or negative | 0.03 / 0.06 / 0.09 rad |
-| Object layout | Six planar translations of all free-joint objects as a group | 1 / 2 / 3 cm |
+| Camera | Distance, orbit, orientation | Distance ×1.05/1.10/1.20/1.35/1.50; orbit parameter norm 5/10/15/25/35°; orientation 2/4/6/8/10° |
+| Background | Scene texture, tabletop texture | Authored bitmap patterns, contrast .2/.4/.6/.8/1.0 |
+| Light | Diffuse RGB, direction, specular, shadows | Separate renderer controls; shadows are categorical |
+| Noise | Motion blur, Gaussian blur, zoom blur, fog, glass blur | Five explicit parameter recipes per subtype |
+| Language | Action paraphrase, irrelevant context, commonsense descriptors | Categorical authored transformations; keep entity nouns and action order |
+| Robot initial state | Joint vector over both seven-joint arms | Total 14-joint L2 radius .05/.10/.15/.20/.25 rad |
+| Object layout | Target-only pose, physical clutter | Target XY 1/2/3/4/5 cm and yaw 3/6/10/15/20°; clutter count 1/1/2/3/4 |
 
-Background changes are material/color shifts, **not** LIBERO-Plus texture assets.
-Layout shifts preserve object-to-object relative placements, while changing their placement
-relative to the robot and fixed fixtures. Robot/layout poses are checked for joint limits,
-new deep penetrations, finite state and initial non-success; these checks do not establish
-reachability. Invalid variants fail explicitly and remain visible as errors.
+See [the exact parameter table and design differences](docs/protocol-v2.md).
+Run `gr1-plus catalogue` to print all machine-readable recipes. These are **strength presets,
+not empirically calibrated difficulty levels**. Bitmap patterns are generated locally;
+clutter uses collidable primitives. Neither reproduces LIBERO-Plus's external asset diversity.
+Target pose shifts must retain positive source-receptacle/support predicates. Robot/layout
+poses are checked for joint limits, new deep penetration, finite state and initial non-success.
+Invalid cases roll back and are reported separately; reachability remains unverified.
 
 Pure visual calibration uses nominal and shifted observations from **one simulation state**.
 No clean policy rollout, expert action, reward, or future frame is used by online adaptation.
@@ -34,18 +37,23 @@ Paired observations are unavailable in development/confirmation episodes.
 
 The default pilot splits base tasks by seed 42 into **6 calibration / 6 development /
 12 confirmation** tasks. Different splits share no base task. Each development and
-confirmation task includes clean plus all seven dimensions, one variant and one trial:
+confirmation task includes clean plus **every subtype**, one realization and one trial:
 
 | Split | Environment episodes | Policy rollouts |
 | --- | --- | --- |
-| Calibration | 12 (camera + noise) | 12 Frozen |
-| Development | 48 | 144: Frozen / Random-LoRA / LoTTA |
-| Confirmation | 96 | 288: Frozen / Random-LoRA / LoTTA |
+| Calibration | 48 (3 camera + 5 noise per task) | 48 Frozen |
+| Development | 126 | 378: Frozen / Random-LoRA / LoTTA |
+| Confirmation | 252 | 756: Frozen / Random-LoRA / LoTTA |
 
-These are pilot counts, not full-benchmark confidence estimates. Language has six categorical
-variants and one severity; other dimensions support six variants × three severities.
-For a larger fixed plan use `GR1_PLUS_VARIANTS=6 GR1_PLUS_SEVERITIES=1,2,3 GR1_PLUS_TRIALS=10`
-and a new output directory. Never tune on the confirmation tasks.
+These are pilot counts, not full-benchmark confidence estimates. Default strength is S1.
+For a larger fixed plan use `GR1_PLUS_SEVERITIES=1,3,5 GR1_PLUS_TRIALS=10` and a new output
+directory. `--variants` requests additional realizations where meaningful; fixed recipes
+are emitted once per strength and authored language templates are capped at three.
+Never tune on confirmation tasks.
+
+The v0.1 recipes remain accessible with `gr1-plus plan --protocol v1`. Keep any running
+v0.1 evaluation on its original checkout and output directory: **clone this branch separately**
+and generate a fresh v0.2 plan. Source fingerprints intentionally reject a stale manifest.
 
 ## Installation
 
@@ -53,10 +61,10 @@ Use a **separate conda environment** because LIBERO and GR1 have different simul
 Keep the existing LIBERO environment and jobs in place.
 
 ```bash
-conda create -n lotta-gr1 python=3.10 -y
-conda activate lotta-gr1
-git clone https://github.com/islexu/robocasa-gr1-plus.git
-cd robocasa-gr1-plus
+conda create -n lotta-gr1-v2 python=3.10 -y
+conda activate lotta-gr1-v2
+git clone --branch refine/libero-plus-v2 https://github.com/islexu/robocasa-gr1-plus.git robocasa-gr1-plus-v2
+cd robocasa-gr1-plus-v2
 bash scripts/install_sim.sh
 python external/robocasa-gr1-tabletop-tasks/robocasa/scripts/download_tabletop_assets.py -y
 ```
@@ -69,7 +77,7 @@ git clone --branch robocasa-gr1-plus https://github.com/islexu/LoTTA.git ../LoTT
 cd ../LoTTA-gr1
 python -m pip install torch==2.7.1 torchvision==0.22.1 --index-url https://download.pytorch.org/whl/cu128
 python -m pip install -e '.[model,test]'
-cd ../robocasa-gr1-plus
+cd ../robocasa-gr1-plus-v2
 ```
 
 The complete Isaac-GR00T training package and FlashAttention are not needed by this DiT4DiT
@@ -107,6 +115,18 @@ one actual adapter update and exact reset, runs activation patching, selects a t
 validates development resets, and evaluates all three methods. `confirmation` uses the fixed
 selection. `collect`, `validate`, and `development` can also be run separately.
 
+For a **frozen checkpoint audit on all 24 tasks**, use a different output directory:
+
+```bash
+export GR1_PLUS_OUTPUT=/home/jovyan/robocasa-gr1-plus-v2/runs/checkpoint-v2
+export GR1_PLUS_TRIALS=50
+bash scripts/run_lotta.sh checkpoint
+```
+
+This uses `configs/gr1_checkpoint_v2.yaml`, supplies no calibration pairs/selection, and
+evaluates 24 × 21 × 50 = **25,200 episodes** at the default S1. It is separate from the
+task-disjoint LoTTA experiment. Set `GR1_PLUS_OUTPUT` back to the pilot directory to run LoTTA.
+
 The launcher starts one process per selected GPU, uses no DDP/NCCL, and resumes completed
 streams. GPU IDs are explicit. Busy GPUs fail the preflight check unless you deliberately set
 `GR1_PLUS_ALLOW_BUSY=1`; the launcher never terminates existing jobs. For concurrent LIBERO
@@ -123,7 +143,16 @@ reset settles the scene internally; there is no LIBERO dummy-gripper settling se
 different plan. `validation/` saves reset checks, pair proofs and images. `calibration/`
 contains trajectories, patch scores, `smoke.json` and `selected.json`. Development and
 confirmation store per-episode success, updates, timing, memory and the existing LoTTA reports.
-Failures are errors, not counted as ordinary unsuccessful episodes.
+Runtime errors and `InvalidPerturbation` cases are separate from policy failures.
+`coverage.json` reports planned/completed/success/error/invalid/pending counts per method,
+dimension, subtype and strength. Rates use completed valid episodes; partial coverage
+remains explicit. Fixed-dimension macro rates accompany pooled rates because the dimensions
+contain different numbers of subtypes. A recovered retry is counted once.
+
+```bash
+gr1-plus summarize --manifest runs/pilot-v2/plan/development.jsonl \
+  --results runs/pilot-v2/development/evaluation --output runs/pilot-v2/development/coverage.json
+```
 
 ```bash
 python -m pytest

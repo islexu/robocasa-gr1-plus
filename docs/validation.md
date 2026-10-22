@@ -1,4 +1,27 @@
-# Validation status (2026-10-21)
+# Validation status (2026-10-22, refine/libero-plus-v2)
+
+v0.2 implements 20 named subtypes, five numeric strength presets (categorical language
+and shadows use one), actual bitmap texture materials, five image degradations, all-14-arm-joint
+vectors, target-only pose changes with source/support guards, and physical collidable clutter.
+Plans serialize concrete parameters and separate strength from unmeasured difficulty.
+The existing LoTTA environment interface and calibration/patching/selection/adaptation pipeline
+remain in use. A separate frozen-only checkpoint plan covers all 24 tasks.
+
+Measured locally: **114 tests passed** (64 benchmark + 50 LoTTA). This includes all original
+77 regressions, 14 v0.2 visual subtype cases rendered with MuJoCo 3.2.6/EGL, a rotated
+camera-parent transform, actual collidable clutter and 14-joint interventions, rollback on
+lost relations/limits, isolated hard-reset XML hooks, and complete subtype/strength accounting.
+CLI smoke checks cover default v0.2, explicit legacy v0.1, checkpoint planning, catalogue,
+and pending-coverage summaries. Shell syntax checks pass. CI now installs MuJoCo and runs
+the renderer fixtures, rather than skipping them when the dependency is absent.
+
+These simulator tests use a small authored fixture, **not official GR1 task assets**.
+No GR1 checkpoint/H200 rollout, success rate, full-manifest reset validation, semantic review
+or empirical difficulty calibration was performed in this authoring session. Run validation
+and inspect images on the target machine before a new v0.2 evaluation. Existing v0.1 jobs
+must keep their original checkout and output. See [protocol-v2.md](protocol-v2.md).
+
+## Historical v0.1 validation (2026-10-21)
 
 Implemented: fixed 24-task catalogue; seven dimensions; six variants per dimension;
 three strengths for all but categorical language; task-disjoint plans; replayable seeds;

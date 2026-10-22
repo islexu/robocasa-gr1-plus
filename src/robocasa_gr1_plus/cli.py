@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import sys
 from .protocol import make_plan, PROTOCOL, UPSTREAM_COMMIT
+from .catalogue_v2 import PROTOCOL_V2, SUBTYPES, make_variant, InvalidPerturbation
 
 def doctor(root, require_model=False):
     names = ["robocasa", "robosuite", "mujoco", "gymnasium", "cv2"]
@@ -33,14 +34,13 @@ def doctor(root, require_model=False):
         import torch
         if not torch.cuda.is_available():
             errors.append("No CUDA GPU visible")
-    return {"protocol":PROTOCOL,"dependencies":dependencies,"source":source,"errors":errors}
+    return {"supported_protocols":[PROTOCOL, PROTOCOL_V2],"dependencies":dependencies,"source":source,"errors":errors}
 
 def validate(manifest, root, output, hold_steps=10, limit=None):
     import numpy as np
     from PIL import Image
     from .environment import GR1PlusEnvironment
     from .shifts import array_digest, state_snapshot
-    from .embodiment import PARTS
     rows = [json.loads(s) for s in Path(manifest).read_text().splitlines() if s.strip()]
     if not rows or hold_steps < 1 or (limit is not None and limit < 1):
         raise ValueError("Use a nonempty manifest and positive hold_steps/limit")
@@ -50,7 +50,8 @@ def validate(manifest, root, output, hold_steps=10, limit=None):
     cfg = {"environment":{"expected_package_root":root,"max_steps":max(hold_steps,1)}}
     for row in selected:
         record = {"episode_id":row["episode_id"], "base_task_id":row["base_task_id"],
-                  "dimension":row["dimension"], "variant":row["variant"]}
+                  "protocol":row["protocol"], "dimension":row["dimension"],
+                  "subtype":row.get("subtype"), "variant":row["variant"]}
         env = None
         try:
             env = GR1PlusEnvironment(cfg,row)
@@ -62,6 +63,12 @@ def validate(manifest, root, output, hold_steps=10, limit=None):
                 clean, shifted = env.pair()
                 image = np.concatenate([clean["primary"],shifted["primary"]],axis=1)
                 record["pair_proof"] = env.pair_metadata
+            elif row["protocol"] == PROTOCOL_V2 and row["dimension"] in ("camera", "background", "light", "noise"):
+                # Validation-only visibility check, never supplied to the policy.
+                clean_image = env._render(False)["primary"]
+                if np.array_equal(clean_image, initial_image):
+                    raise InvalidPerturbation("visual_intervention_not_visible_in_ego_image")
+                image = np.concatenate([clean_image, initial_image], axis=1)
             Image.fromarray(image).save(output/(row["episode_id"]+".png"))
             hold = obs["state"].copy()
             for _ in range(hold_steps):
@@ -78,16 +85,25 @@ def validate(manifest, root, output, hold_steps=10, limit=None):
                 raise RuntimeError("Fresh seeded GR1 reset is not reproducible")
             record.update({"status":"passed","initial_state_sha256":state_hash,"hold_steps":hold_steps})
         except Exception as exc:
-            record.update({"status":"error","error_type":type(exc).__name__,"error":str(exc)})
+            record.update({"status":"invalid" if isinstance(exc, InvalidPerturbation) else "error",
+                           "error_type":type(exc).__name__,"error":str(exc)})
         finally:
             if env is not None:
-                env.close()
+                try:
+                    env.close()
+                except Exception as exc:
+                    record["close_error"] = f"{type(exc).__name__}: {exc}"
+                    if record.get("status") == "passed":
+                        record.update({"status":"error", "error_type":type(exc).__name__, "error":str(exc)})
         records.append(record)
         print(f"{record['status']} {row['base_task_id']} {row['variant_name']}",flush=True)
-    report = {"protocol":PROTOCOL,"upstream_commit":UPSTREAM_COMMIT,
+    report = {"protocols":sorted({r["protocol"] for r in rows}),"upstream_commit":UPSTREAM_COMMIT,
               "manifest_sha256":__import__("hashlib").sha256(Path(manifest).read_bytes()).hexdigest(),
               "requested":len(rows),"validated":len(records),"complete_coverage":len(records)==len(rows),
-              "errors":sum(r["status"]!="passed" for r in records),"records":records,
+              "errors":sum(r["status"]=="error" for r in records),
+              "invalid":sum(r["status"]=="invalid" for r in records),
+              "complete_valid_coverage":len(records)==len(rows) and all(r["status"]=="passed" for r in records),
+              "records":records,
               "note":"Initial-state mechanics and reset checks; does not establish task reachability or policy success."}
     (output/"validation.json").write_text(json.dumps(report,indent=2)+"\n")
     return report
@@ -97,6 +113,8 @@ def main(argv=None):
     sub = parser.add_subparsers(dest="command",required=True)
     plan = sub.add_parser("plan")
     plan.add_argument("--output",required=True)
+    plan.add_argument("--protocol",choices=("v1", "v2"),default="v2")
+    plan.add_argument("--mode",choices=("lotta", "checkpoint"),default="lotta")
     plan.add_argument("--seed",type=int,default=42)
     plan.add_argument("--calibration-tasks",type=int,default=6)
     plan.add_argument("--development-tasks",type=int,default=6)
@@ -113,17 +131,40 @@ def main(argv=None):
     v.add_argument("--output",required=True)
     v.add_argument("--hold-steps",type=int,default=10)
     v.add_argument("--limit",type=int)
+    sub.add_parser("catalogue", help="Print every v2 subtype and its parameter presets")
+    s = sub.add_parser("summarize", help="Report subtype/severity rates and missing/invalid coverage")
+    s.add_argument("--manifest",required=True)
+    s.add_argument("--results",required=True)
+    s.add_argument("--output",required=True)
+    s.add_argument("--methods",help="Comma-separated; defaults to plan mode")
     args = vars(parser.parse_args(argv)); command = args.pop("command")
     if command=="plan":
         args["severities"] = tuple(int(x) for x in args["severities"].split(","))
         args["calibration_dimensions"] = tuple(args["calibration_dimensions"].split(","))
-        result = make_plan(**args)
+        protocol = args.pop("protocol")
+        if protocol == "v2":
+            from .protocol_v2 import make_plan_v2
+            result = make_plan_v2(**args)
+        else:
+            if args.pop("mode") != "lotta":
+                raise ValueError("Checkpoint mode requires v2")
+            result = make_plan(**args)
     elif command=="doctor":
         result = doctor(**args)
+    elif command=="catalogue":
+        from .catalogue_v2 import CATEGORICAL
+        result = {f"{d}/{s}": [make_variant(d,s,severity=k) for k in ((1,) if (d,s) in CATEGORICAL else range(1,6))]
+                  for d, types in SUBTYPES.items() for s in types}
+    elif command=="summarize":
+        from .report_v2 import summarize
+        args["methods"] = args["methods"].split(",") if args["methods"] else None
+        result = summarize(**args)
+        print(json.dumps(result["overall"],indent=2))
+        return 0
     else:
         result = validate(**args)
         print(json.dumps({k:v for k,v in result.items() if k!="records"},indent=2))
-        return 2 if result["errors"] else 0
+        return 2 if result["errors"] or result["invalid"] else 0
     print(json.dumps(result,indent=2))
     return 2 if result.get("errors") else 0
 

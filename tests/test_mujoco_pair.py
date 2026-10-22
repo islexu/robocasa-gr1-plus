@@ -29,17 +29,18 @@ class ModelBridge:
     def camera_name2id(self,name): return mujoco.mj_name2id(self.raw,mujoco.mjtObj.mjOBJ_CAMERA,name)
     def joint_name2id(self,name): return mujoco.mj_name2id(self.raw,mujoco.mjtObj.mjOBJ_JOINT,name)
     def geom_id2name(self,i): return mujoco.mj_id2name(self.raw,mujoco.mjtObj.mjOBJ_GEOM,i)
+    def mat_name2id(self,name): return mujoco.mj_name2id(self.raw,mujoco.mjtObj.mjOBJ_MATERIAL,name)
 
 class SimBridge:
-    def __init__(self):
-        self.raw=mujoco.MjModel.from_xml_string(XML); self.data=mujoco.MjData(self.raw)
+    def __init__(self, xml=XML):
+        self.raw=mujoco.MjModel.from_xml_string(xml); self.data=mujoco.MjData(self.raw)
         self.model=ModelBridge(self.raw); self.forward()
     def forward(self): mujoco.mj_forward(self.raw,self.data)
     def get_state(self): return SimpleNamespace(flatten=lambda:np.r_[self.data.time,self.data.qpos,self.data.qvel,self.data.act])
 
 class PhysicalSimBridge(SimBridge):
-    def __init__(self):
-        super().__init__()
+    def __init__(self, xml=XML):
+        super().__init__(xml)
         self.native_data=self.data
         owner=self
         class DataBridge:

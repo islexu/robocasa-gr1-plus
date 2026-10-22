@@ -3,28 +3,29 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 if [[ -f "$repo_root/scripts/paths.local.sh" ]]; then source "$repo_root/scripts/paths.local.sh"; fi
 stage="${1:-pilot}"
-case "$stage" in plan|doctor|validate|collect|pilot|development|confirmation) ;; *)
-  printf '%s\n' 'Usage: bash scripts/run_lotta.sh [plan|doctor|validate|collect|pilot|development|confirmation]' >&2; exit 2;;
+case "$stage" in plan|doctor|validate|collect|pilot|development|confirmation|checkpoint) ;; *)
+  printf '%s\n' 'Usage: bash scripts/run_lotta.sh [plan|doctor|validate|collect|pilot|development|confirmation|checkpoint]' >&2; exit 2;;
 esac
-export GR1_PLUS_OUTPUT="${GR1_PLUS_OUTPUT:-$repo_root/runs/pilot-v1}"
+protocol="${GR1_PLUS_PROTOCOL:-v2}"
+default_run=pilot
+if [[ "$stage" == checkpoint ]]; then default_run=checkpoint; fi
+export GR1_PLUS_OUTPUT="${GR1_PLUS_OUTPUT:-$repo_root/runs/$default_run-$protocol}"
 export GR1_PLUS_SELECTION="$GR1_PLUS_OUTPUT/calibration/selected.json"
 export MUJOCO_GL="${MUJOCO_GL:-egl}"
 export PYOPENGL_PLATFORM="${PYOPENGL_PLATFORM:-egl}"
 config="${GR1_PLUS_CONFIG:-$repo_root/configs/lotta_gr1_plus.yaml}"
-if [[ "$stage" == plan || "$stage" == pilot || "$stage" == collect ]]; then
-  gr1-plus plan --output "$GR1_PLUS_OUTPUT/plan" --variants "${GR1_PLUS_VARIANTS:-1}" \
+mode=lotta
+if [[ "$stage" == checkpoint ]]; then
+  mode=checkpoint
+  config="${GR1_PLUS_CONFIG:-$repo_root/configs/gr1_checkpoint_v2.yaml}"
+fi
+if [[ "$stage" == plan || "$stage" == pilot || "$stage" == collect || "$stage" == checkpoint ]]; then
+  gr1-plus plan --protocol "$protocol" --mode "$mode" --output "$GR1_PLUS_OUTPUT/plan" --variants "${GR1_PLUS_VARIANTS:-1}" \
     --severities "${GR1_PLUS_SEVERITIES:-1}" --trials "${GR1_PLUS_TRIALS:-1}"
   if [[ "$stage" == plan ]]; then exit 0; fi
 fi
 : "${GR1_PLUS_UPSTREAM:?Set GR1_PLUS_UPSTREAM}"
 gr1-plus doctor --root "$GR1_PLUS_UPSTREAM"
-if [[ "$stage" == validate ]]; then
-  for split in calibration development confirmation; do
-    gr1-plus validate --root "$GR1_PLUS_UPSTREAM" --manifest "$GR1_PLUS_OUTPUT/plan/$split.jsonl" \
-      --output "$GR1_PLUS_OUTPUT/validation/$split"
-  done
-  exit 0
-fi
 : "${GR1_PLUS_DEVICES:?Explicitly select GPUs that are free from existing LIBERO jobs}"
 IFS=',' read -ra devices <<< "$GR1_PLUS_DEVICES"
 export MUJOCO_EGL_DEVICE_ID="${devices[0]}"
@@ -40,6 +41,13 @@ for device in devices:
     if result.stdout.strip() and os.getenv('GR1_PLUS_ALLOW_BUSY')!='1':
         raise SystemExit(f'GPU {device} already has compute processes; choose free GPUs or set GR1_PLUS_ALLOW_BUSY=1')
 PY
+if [[ "$stage" == validate ]]; then
+  for split in calibration development confirmation; do
+    gr1-plus validate --root "$GR1_PLUS_UPSTREAM" --manifest "$GR1_PLUS_OUTPUT/plan/$split.jsonl" \
+      --output "$GR1_PLUS_OUTPUT/validation/$split"
+  done
+  exit 0
+fi
 gr1-plus doctor --root "$GR1_PLUS_UPSTREAM" --require-model
 CUDA_VISIBLE_DEVICES="${devices[0]}" LOTTA_DEVICE=cuda:0 lotta doctor --config "$config" --load-model
 if [[ "$stage" == doctor ]]; then exit 0; fi
@@ -64,8 +72,9 @@ PY
     --devices "$GR1_PLUS_DEVICES"
   lotta select --scores "$GR1_PLUS_OUTPUT/calibration/scores" --output "$GR1_PLUS_SELECTION"
   split=development
-elif [[ "$stage" == development || "$stage" == confirmation ]]; then
+elif [[ "$stage" == development || "$stage" == confirmation || "$stage" == checkpoint ]]; then
   split="$stage"
+  if [[ "$stage" == checkpoint ]]; then split=confirmation; fi
 else
   exit 2
 fi
@@ -74,3 +83,5 @@ gr1-plus validate --root "$GR1_PLUS_UPSTREAM" --manifest "$GR1_PLUS_OUTPUT/plan/
 lotta launch --config "$config" --manifest "$GR1_PLUS_OUTPUT/plan/$split.jsonl" \
   --devices "$GR1_PLUS_DEVICES" --output "$GR1_PLUS_OUTPUT/$split/evaluation" --resume
 lotta summarize --output "$GR1_PLUS_OUTPUT/$split/evaluation"
+gr1-plus summarize --manifest "$GR1_PLUS_OUTPUT/plan/$split.jsonl" \
+  --results "$GR1_PLUS_OUTPUT/$split/evaluation" --output "$GR1_PLUS_OUTPUT/$split/coverage.json"
